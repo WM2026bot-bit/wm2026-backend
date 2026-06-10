@@ -8,18 +8,22 @@ app.use(express.json());
 const API_KEY = process.env.ANTHROPIC_API_KEY;
 
 app.get("/health", (req, res) => {
-  res.json({ status: "ok", service: "WM2026 Backend" });
+  res.json({ status: "ok", service: "WM2026 Backend", hasKey: !!API_KEY });
 });
 
 app.post("/news", async (req, res) => {
+  console.log("News Anfrage:", req.body);
+  if (!API_KEY) {
+    console.log("KEIN API KEY!");
+    return res.status(500).json({ ok: false, news: [], error: "No API Key" });
+  }
   const { topic } = req.body;
   const isBVB = topic === "bvb";
-
   const prompt = isBVB
-    ? `Suche BVB Borussia Dortmund 1909 aktuelle News von: Transfermarkt, kicker, Sportbild, Sky Sport, WAZ, Reviersport, Ruhr Nachrichten, BVB.de. 5 Headlines auf Deutsch. NUR JSON-Array: [{"title":"...","summary":"1 Satz","source":"...","emoji":"🖤","url":"https://...","category":"Transfer"}]`
-    : `Suche aktuelle FIFA WM 2026 Nachrichten. 5 Headlines auf Deutsch. NUR JSON-Array: [{"title":"...","summary":"1 Satz","source":"...","emoji":"⚽","url":"https://...","category":"News"}]`;
-
+    ? `Suche BVB Borussia Dortmund News. 3 Headlines auf Deutsch. NUR JSON: [{"title":"...","summary":"1 Satz","source":"kicker","emoji":"🖤","url":"https://kicker.de","category":"News"}]`
+    : `Suche FIFA WM 2026 News. 3 Headlines auf Deutsch. NUR JSON: [{"title":"...","summary":"1 Satz","source":"Sport","emoji":"⚽","url":"https://sport.de","category":"News"}]`;
   try {
+    console.log("Rufe Anthropic API...");
     const response = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {
@@ -34,20 +38,22 @@ app.post("/news", async (req, res) => {
         messages: [{ role: "user", content: prompt }],
       }),
     });
-
     const data = await response.json();
+    console.log("API Status:", response.status);
     const text = data.content?.filter(b => b.type === "text").map(b => b.text).join("") || "";
     const clean = text.replace(/```json|```/g, "").trim();
     const start = clean.indexOf("[");
     const end = clean.lastIndexOf("]");
-
     if (start !== -1 && end !== -1) {
       const news = JSON.parse(clean.slice(start, end + 1));
+      console.log("News gefunden:", news.length);
       res.json({ ok: true, news });
     } else {
+      console.log("Kein JSON gefunden in:", text.slice(0, 200));
       res.json({ ok: false, news: [] });
     }
   } catch (e) {
+    console.log("Fehler:", e.message);
     res.status(500).json({ ok: false, error: e.message, news: [] });
   }
 });
